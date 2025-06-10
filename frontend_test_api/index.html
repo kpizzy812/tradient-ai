@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tradient AI – Test Panel</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Tradient API Test Panel</h1>
+
+  <label>User ID:</label><br>
+  <input type="number" id="userId" placeholder="Enter User ID"><br><br>
+
+  <h3>Invest</h3>
+<input type="number" id="investAmount" placeholder="Amount ($)">
+<select id="pool">
+  <option value="Basic">Basic</option>
+  <option value="Stable">Stable</option>
+  <option value="HighRisk">HighRisk</option>
+</select><br>
+<label>
+  <input type="checkbox" id="useBalance"> Use internal balance
+</label><br>
+<button onclick="invest()">Invest</button>
+
+
+  <h3>Reinvest Toggle</h3>
+  <button onclick="toggleReinvest(true)">Enable</button>
+  <button onclick="toggleReinvest(false)">Disable</button>
+
+  <h3>Withdraw</h3>
+  <input type="number" id="withdrawAmount" placeholder="Amount ($)">
+  <input type="text" id="method" placeholder="Method (TON/BEP20/etc)">
+  <input type="text" id="address" placeholder="Wallet Address">
+  <button onclick="withdraw()">Withdraw</button>
+
+  <pre id="response" style="background:#eee;padding:10px;"></pre>
+
+  <script src="script.js"></script>
+</body>
+</html>
