@@ -103,6 +103,7 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+static/trade_charts/
 
 # ===== Jupyter Notebooks =====
 .ipynb_checkpoints
