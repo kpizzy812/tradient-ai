@@ -8,9 +8,9 @@ class Settings(BaseSettings):
     # Основные параметры
     BOT_TOKEN: str = "8024565295:AAGmWeXeWmK3xD8xBu0e9dFss_iMFb7fUXk"
     BOT_USERNAME: str = "TradientBot"
-    SUPPORT_URL: ClassVar[str] = "https://t.me/tradient_support"
-    PROJECT_CHAT_ID: ClassVar[int] = -1002660218997
-    TRADE_TOPIC_ID: ClassVar[int] = 2 # топик сделок
+    SUPPORT_URL: ClassVar[str] = "https://t.me/SergioTradientAI"
+    PROJECT_CHAT_ID: ClassVar[int] = -1002461933482
+    TRADE_TOPIC_ID: ClassVar[int] = 12 # топик сделок
     DAILY_YIELD_TOPIC_ID: ClassVar[Optional[int]] = None
     DATABASE_URL: str = "sqlite:///./db.sqlite"
     CUTOFF_TIME: time = time(17, 30)

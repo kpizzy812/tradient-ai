@@ -15,32 +15,117 @@ TICKERS = [
 ]
 EXCHANGES = ["Binance", "Bybit", "OKX"]
 
+# Целевые параметры
+TARGET_DAILY_RANGE = (2.0, 5.0)  # 2-5% в день
+MIN_VOLATILITY_PCT = 0.3
+MAX_SINGLE_TRADE_PCT = 2.0  # максимум 2% за одну сделку
+TARGET_WINRATE = 0.82  # 82% винрейт
+
+_last_ticker = None
+
 EXCHANGE_COLORS = {
     "Binance": "🟡",
     "Bybit": "🟠",
     "OKX": "⚫️",
 }
 
-MIN_VOLATILITY_PCT = 0.3   # минимальный % сделки
-_last_ticker = None
 
-def calculate_winrate(db):
-    total = db.query(Trade).count()
-    profitable = db.query(Trade).filter(Trade.is_profitable == True).count()
-    if total == 0:
-        return 0.0
-    return profitable / total
+def get_moscow_trading_day():
+    """Возвращает начало и конец торгового дня по Москве (18:00-18:00)"""
+    now = datetime.utcnow() + timedelta(hours=3)  # MSK
 
-def decide_profit(winrate):
-    """
-    Когда дневная доходность уже в [2%, 5%],
-    решаем, делать ли прибыльную сделку, ориентируясь на винрейт.
-    """
-    if winrate < 0.85:
-        return random.random() < 0.95
-    elif winrate > 0.85:
-        return random.random() < 0.25
-    return random.random() < 0.80
+    if now.hour >= 18:
+        # После 18:00 - считаем текущий торговый день
+        start = datetime.combine(now.date(), dtime(18, 0)) - timedelta(hours=3)  # UTC
+        end = start + timedelta(days=1)
+    else:
+        # До 18:00 - считаем предыдущий торговый день
+        start = datetime.combine(now.date() - timedelta(days=1), dtime(18, 0)) - timedelta(hours=3)
+        end = start + timedelta(days=1)
+
+    return start, end, now
+
+
+def calculate_daily_stats(db):
+    """Считает статистику за текущий торговый день"""
+    start, end, now = get_moscow_trading_day()
+
+    # Общая доходность
+    total_pct = db.query(func.sum(Trade.result_pct)).filter(
+        Trade.created_at >= start,
+        Trade.created_at < min(end, now)
+    ).scalar() or 0.0
+
+    # Количество сделок
+    total_trades = db.query(Trade).filter(
+        Trade.created_at >= start,
+        Trade.created_at < min(end, now)
+    ).count()
+
+    # Прибыльные сделки
+    profitable_trades = db.query(Trade).filter(
+        Trade.created_at >= start,
+        Trade.created_at < min(end, now),
+        Trade.is_profitable == True
+    ).count()
+
+    winrate = profitable_trades / total_trades if total_trades > 0 else 0.0
+
+    # Время до конца торгового дня
+    time_left_seconds = (end - now).total_seconds()
+
+    return {
+        'total_pct': total_pct,
+        'total_trades': total_trades,
+        'winrate': winrate,
+        'time_left_seconds': max(time_left_seconds, 0),
+        'start': start,
+        'end': end,
+        'now': now
+    }
+
+
+def should_be_profitable(stats):
+    """Определяет, должна ли следующая сделка быть прибыльной"""
+    if stats['total_trades'] == 0:
+        return True  # Первая сделка прибыльная
+
+    current_winrate = stats['winrate']
+
+    if current_winrate < TARGET_WINRATE - 0.05:  # Слишком низкий винрейт
+        return True
+    elif current_winrate > TARGET_WINRATE + 0.05:  # Слишком высокий винрейт
+        return random.random() < 0.3  # 30% шанс прибыльной
+    else:
+        return random.random() < 0.85  # 85% шанс прибыльной (немного выше цели)
+
+
+def calculate_target_pct(stats):
+    """Рассчитывает целевой процент для следующей сделки"""
+    current_pct = stats['total_pct']
+    time_left_hours = stats['time_left_seconds'] / 3600
+
+    # Если времени мало (меньше 2 часов), не генерируем сделки
+    if time_left_hours < 2:
+        return None
+
+    # Среднее количество сделок в день: 20-35
+    estimated_trades_left = max(1, int(time_left_hours * 1.5))  # ~1.5 сделки в час
+
+    if current_pct < TARGET_DAILY_RANGE[0]:
+        # Нужно добавить доходности
+        needed = TARGET_DAILY_RANGE[0] + random.uniform(0, 1.5) - current_pct
+        target = needed / estimated_trades_left
+        return min(target, MAX_SINGLE_TRADE_PCT)
+    elif current_pct > TARGET_DAILY_RANGE[1]:
+        # Слишком много, нужно умерить
+        excess = current_pct - TARGET_DAILY_RANGE[1]
+        target = -excess / estimated_trades_left
+        return max(target, -MAX_SINGLE_TRADE_PCT)
+    else:
+        # В пределах нормы, небольшие колебания
+        return random.uniform(-0.5, 0.8)
+
 
 def draw_candlestick_chart(candles, entry_idx, exit_idx, trade_id, direction):
     import matplotlib.pyplot as plt
@@ -83,212 +168,151 @@ def draw_candlestick_chart(candles, entry_idx, exit_idx, trade_id, direction):
     plt.close()
     return path
 
-def generate_fake_trade():
-    """
-    Адаптированная функция: публикация в Telegram идёт с
-    «случайной» задержкой 20–50 мин, поэтому здесь мы
-    расчёты строим не на «слоты», а на фактическое время до полуночи.
-    """
+
+def find_suitable_trade(target_pct, should_profit):
+    """Ищет подходящую сделку с нужными параметрами"""
     global _last_ticker
 
-    # 1) Берём текущее время (UTC+3), началом суток считаем 00:00 (UTC+3)
-    now = datetime.utcnow() + timedelta(hours=3)
-    today = now.date()
-    start_of_day = datetime.combine(today, dtime.min)
-    end_of_day = datetime.combine(today + timedelta(days=1), dtime.min)
+    for attempt in range(50):  # Увеличиваем количество попыток
+        # Выбираем тикер (не повторяем предыдущий)
+        tickers_pool = [t for t in TICKERS if t != _last_ticker]
+        ticker = random.choice(tickers_pool) if tickers_pool else random.choice(TICKERS)
 
-    logger.info(f"[FAKE_TRADE] ▶️ Запущена генерация трейда на {now.isoformat()}")
+        exchange = random.choice(EXCHANGES)
+        symbol = ticker.replace("/", "")
 
-    db = SessionLocal()
-    try:
-        # --------------------------------------------
-        # 2) Считаем текущую дневную доходность (в %)
-        # --------------------------------------------
-        current_day_profit = db.query(
-            func.coalesce(func.sum(Trade.result_pct), 0.0)
-        ).filter(Trade.created_at >= start_of_day, Trade.created_at <= now).scalar() or 0.0
-        logger.info(f"[FAKE_TRADE] 📊 Текущая дневная доходность: {current_day_profit:.2f}%")
+        try:
+            candles = get_candles(symbol=symbol, interval="15m", limit=96)
+        except Exception as e:
+            logger.warning(f"Ошибка получения данных для {ticker}: {e}")
+            continue
 
-        # --------------------------------------------
-        # 3) Считаем, сколько секунд осталось до полуночи
-        # --------------------------------------------
-        seconds_until_end = (end_of_day - now).total_seconds()
-        if seconds_until_end < 1:
-            seconds_until_end = 1  # чтобы не делить на ноль
+        if len(candles) < 50:
+            continue
 
-        # --------------------------------------------
-        # 4) Вычисляем, насколько «нам не хватает» до 2% и на сколько мы «перебрали» 5%
-        # --------------------------------------------
-        needed_to_min = 2.0 - current_day_profit   # >0 => надо «добавить» до 2%
-        needed_to_max = 5.0 - current_day_profit   # <0 => мы уже за 5%
+        # Случайные точки входа и выхода
+        entry_idx = random.randint(5, len(candles) - 20)
+        exit_idx = entry_idx + random.randint(3, min(25, len(candles) - entry_idx - 1))
 
-        # --------------------------------------------
-        # 5) Рассчитываем «средний % в секунду»:
-        #    - Если current < 2  ⇒ нам нужно avg_up_per_sec = needed_to_min / seconds_until_end  (>0)
-        #    - Если current > 5  ⇒ avg_down_per_sec = needed_to_max / seconds_until_end (<0)
-        #    - Если 2 ≤ current ≤ 5 ⇒ avg_target_per_sec как можно ближе к 0,
-        #         но чуть «подпираем» границы (возьмём какой-нибудь avg ±, чтобы ограничивать «слишком жирные» сделки).
-        # --------------------------------------------
-        if current_day_profit < 2.0:
-            mode = "FORCE_PROFIT"
-            avg_target_per_sec = needed_to_min / seconds_until_end  # > 0
-        elif current_day_profit > 5.0:
-            mode = "FORCE_LOSS"
-            avg_target_per_sec = needed_to_max / seconds_until_end  # < 0
-        else:
-            mode = "RANDOM_BALANCE"
-            # Если мы в диапазоне [2, 5], то avg_target_per_sec можно считать очень малым числом,
-            # но всё же выступить «буфером» при отсеивании «слишком жирных» сделок:
-            # возьмём min(|needed_to_min|, |needed_to_max|) / seconds_until_end:
-            base = needed_to_min if needed_to_min > 0 else needed_to_max  # base может быть + или −, близко к 0
-            avg_target_per_sec = base / seconds_until_end
+        entry = candles[entry_idx]
+        exit = candles[exit_idx]
 
-        logger.info(
-            f"[FAKE_TRADE] 🔄 Режим: {mode}, "
-            f"avg_target_per_sec ≈ {avg_target_per_sec:.8f} (секунд до конца дня: {seconds_until_end:.0f})"
-        )
+        for direction in ["LONG", "SHORT"]:
+            # Рассчитываем результат
+            if direction == "LONG":
+                pct = ((exit["close"] - entry["close"]) / entry["close"]) * 100
+            else:
+                pct = ((entry["close"] - exit["close"]) / entry["close"]) * 100
 
-        # --------------------------------------------
-        # 6) Сколько секунд пройдёт до следующей публикации?
-        #    Тут мы его ещё не знаем (delay определится после создания trade),
-        #    поэтому поступаем так: для «FORCE» режимов мы знаем avg_target_per_sec,
-        #    и можем «целиться» примерно в avg_target_pct = avg_target_per_sec *
-        #    typical_delay_secs. Предположим, typical_delay = 30 мин = 1800 сек
-        #    (это среднее между 20 и 50).
-        #    Для точности потом проверим итоговый result_pct ± tolerance.
-        # --------------------------------------------
-        typical_delay_secs = 30 * 60  # 30 минут в секундах
-        avg_target_pct = avg_target_per_sec * typical_delay_secs
-        # Если режим RANDOM_BALANCE, avg_target_pct может быть очень малым (−0.001…+0.001 и т. п.)
+            is_profitable = pct > 0
 
-        # --------------------------------------------
-        # 7) Теперь попытаемся за 20 итераций «подогнать» pct ≈ avg_target_pct,
-        #    с учётом:
-        #      - Для FORCE_PROFIT ⇒ is_profit=True
-        #      - Для FORCE_LOSS   ⇒ is_profit=False
-        #      - Для RANDOM_BALANCE ⇒ решаем по vinrate и не даём «прыгнуть» ниже 0% и выше 7%
-        #      - Абсолютная «жирность» сделки (отсекание очень больших отклонений)
-        # --------------------------------------------
-        for _ in range(20):
-            tickers_pool = [t for t in TICKERS if t != _last_ticker]
-            ticker = random.choice(tickers_pool) if tickers_pool else random.choice(TICKERS)
-            _last_ticker = ticker
-
-            exchange = random.choice(EXCHANGES)
-            symbol = ticker.replace("/", "")
-            candles = get_candles(symbol=symbol, interval="15m", limit=96)  # 96 свечей = 24 ч
-
-            if len(candles) < 96:
-                logger.info(f"❌ Пропущен {ticker} — недостаточно свечей ({len(candles)})")
+            # Проверяем соответствие критериям
+            if abs(pct) < MIN_VOLATILITY_PCT:
                 continue
 
-            entry_idx = random.randint(5, len(candles) - 10)
-            max_exit_range = min(30, len(candles) - entry_idx - 1)
-            exit_idx = entry_idx + random.randint(5, max_exit_range)
-            entry = candles[entry_idx]
-            exit = candles[exit_idx]
+            if abs(pct) > MAX_SINGLE_TRADE_PCT:
+                continue
 
-            for direction in ["LONG", "SHORT"]:
-                # Вычисляем будет ли profit
-                is_profit = (exit["close"] > entry["close"]) if direction == "LONG" else (exit["close"] < entry["close"])
-                pct = ((exit["close"] - entry["close"]) / entry["close"]) * 100
-                if direction == "SHORT":
-                    pct *= -1
+            if should_profit != is_profitable:
+                continue
 
-                # Фильтруем «мелкую» волатильность
-                if abs(pct) < MIN_VOLATILITY_PCT:
+            # Проверяем близость к целевому проценту
+            if target_pct is not None:
+                diff = abs(pct - target_pct)
+                if diff > 1.0:  # Допуск ±1%
                     continue
 
-                # -------------------------
-                # FORCE_PROFIT: только + сделки,
-                # и не слишком большой процент (не более 3× avg_target_pct)
-                # -------------------------
-                if mode == "FORCE_PROFIT":
-                    if not is_profit:
-                        continue
-                    # Если avg_target_pct слишком мал (например, 0.03%), чтобы не сгенерить +5%,
-                    # добавим барьер: max_allowed = max(abs(avg_target_pct)*3, MIN_VOLATILITY_PCT)
-                    max_allowed = max(abs(avg_target_pct) * 3, MIN_VOLATILITY_PCT)
-                    if pct > max_allowed:
-                        continue
+            _last_ticker = ticker
+            return {
+                'ticker': ticker,
+                'exchange': exchange,
+                'direction': direction,
+                'entry_idx': entry_idx,
+                'exit_idx': exit_idx,
+                'entry_price': entry["close"],
+                'exit_price': exit["close"],
+                'result_pct': round(pct, 2),
+                'result_usd': round(pct / 100 * 500, 2),
+                'entry_time': entry["time"],
+                'exit_time': exit["time"],
+                'is_profitable': is_profitable,
+                'candles': candles
+            }
 
-                # -------------------------
-                # FORCE_LOSS: только − сделки,
-                # и не слишком «жирный» убыток (не более 3× |avg_target_pct|)
-                # -------------------------
-                elif mode == "FORCE_LOSS":
-                    if is_profit:
-                        continue
-                    max_allowed_loss = min(-abs(avg_target_pct) * 3, -MIN_VOLATILITY_PCT)
-                    # pct меньше, чем max_allowed_loss (больший по модулю отрицательный) ⇒ пропускаем
-                    if pct < max_allowed_loss:
-                        continue
+    return None
 
-                # -------------------------
-                # RANDOM_BALANCE:
-                # решаем по винрейту, чтобы был profit/loss,
-                # но не выводим итог за 0% и 7%,
-                # и не допускаем «чрезмерных» сделок (>|3× avg_target_pct|)
-                # -------------------------
-                else:
-                    winrate = calculate_winrate(db)
-                    want_profit = decide_profit(winrate)
-                    if want_profit != is_profit:
-                        continue
 
-                    hypothetical = current_day_profit + pct
-                    # Если после сделки уйдём ниже 0% или выше 7% ⇒ пропускаем
-                    if hypothetical < 0.0 or hypothetical > 7.0:
-                        continue
+def generate_fake_trade():
+    """Основная функция генерации трейда"""
+    db = SessionLocal()
+    try:
+        # Получаем статистику текущего дня
+        stats = calculate_daily_stats(db)
 
-                    # Ограничим «жирность» сделки:
-                    threshold = max(abs(avg_target_pct) * 3, MIN_VOLATILITY_PCT)
-                    if abs(pct) > threshold:
-                        continue
+        logger.info(
+            f"[TRADE] 📊 День: {stats['total_pct']:.2f}%, сделок: {stats['total_trades']}, винрейт: {stats['winrate']:.1%}")
 
-                # Если до этого момента всё ок — фиксируем trade
-                trade = Trade(
-                    ticker=ticker,
-                    exchange=exchange,
-                    direction=direction,
-                    entry_price=entry["close"],
-                    exit_price=exit["close"],
-                    result_pct=round(pct, 2),
-                    result_usd=round(pct / 100 * 500, 2),
-                    entry_time=entry["time"],
-                    exit_time=exit["time"],
-                    is_profitable=(pct > 0),
-                )
-                try:
-                    db.add(trade)
-                    db.commit()
-                    db.refresh(trade)
-                except Exception as e:
-                    logger.error(f"[TRADE] ❌ Ошибка при коммите трейда: {e}")
-                    db.rollback()
-                    continue
+        # Определяем параметры следующей сделки
+        should_profit = should_be_profitable(stats)
+        target_pct = calculate_target_pct(stats)
 
-                # Обновляем текущую дневную доходность
-                current_day_profit += pct
-                logger.success(
-                    f"[TRADE] 🟢 ID={trade.id} | {ticker} | {direction} | {pct:.2f}% | "
-                    f"mode={mode} | now_day_profit={current_day_profit:.2f}%"
-                )
+        if target_pct is None:
+            logger.info("[TRADE] ⏰ Слишком мало времени до конца дня, пропускаем")
+            return None
 
-                # Генерируем и сохраняем график
-                path = draw_candlestick_chart(candles, entry_idx, exit_idx, trade.id, direction)
-                try:
-                    trade.chart_path = path
-                    db.commit()
-                except Exception as e:
-                    logger.error(f"[TRADE] ❌ Ошибка при сохранении chart_path: {e}")
-                    db.rollback()
+        logger.info(f"[TRADE] 🎯 Цель: {target_pct:.2f}%, прибыль: {should_profit}")
 
-                return trade.id
+        # Ищем подходящую сделку
+        trade_data = find_suitable_trade(target_pct, should_profit)
 
-        # Если за 20 попыток ничего не подошло, вернём None
-        logger.warning("[TRADE] ❌ Не удалось подобрать сделку за 20 итераций.")
+        if not trade_data:
+            logger.warning("[TRADE] ❌ Не удалось найти подходящую сделку")
+            return None
+
+        # Создаем запись в БД
+        trade = Trade(
+            ticker=trade_data['ticker'],
+            exchange=trade_data['exchange'],
+            direction=trade_data['direction'],
+            entry_price=trade_data['entry_price'],
+            exit_price=trade_data['exit_price'],
+            result_pct=trade_data['result_pct'],
+            result_usd=trade_data['result_usd'],
+            entry_time=trade_data['entry_time'],
+            exit_time=trade_data['exit_time'],
+            is_profitable=trade_data['is_profitable'],
+        )
+
+        db.add(trade)
+        db.commit()
+        db.refresh(trade)
+
+        # Генерируем график
+        try:
+            chart_path = draw_candlestick_chart(
+                trade_data['candles'],
+                trade_data['entry_idx'],
+                trade_data['exit_idx'],
+                trade.id,
+                trade_data['direction']
+            )
+            trade.chart_path = chart_path
+            db.commit()
+        except Exception as e:
+            logger.error(f"[TRADE] ❌ Ошибка создания графика: {e}")
+
+        # Обновляем статистику
+        new_total = stats['total_pct'] + trade_data['result_pct']
+        logger.success(
+            f"[TRADE] ✅ ID={trade.id} | {trade_data['ticker']} | {trade_data['direction']} | "
+            f"{trade_data['result_pct']:.2f}% | День: {new_total:.2f}%"
+        )
+
+        return trade.id
+
+    except Exception as e:
+        logger.error(f"[TRADE] ❌ Ошибка генерации: {e}")
+        db.rollback()
         return None
-
     finally:
         db.close()
