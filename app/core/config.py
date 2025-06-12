@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     YIELD_TIME_UTC_HOUR: int = 15  # 18:00 МСК
     MIN_WITHDRAW_USD: float = 5.0
 
+    DAILY_YIELD_RANGE: tuple[float, float] = (2.0, 5.0)  # Целевой диапазон доходности
+    TRADE_FREQUENCY_MINUTES: tuple[int, int] = (30, 90)  # Интервал между трейдами
+    CORRECTION_THRESHOLD_HOURS: int = 2  # За сколько часов до финализации начинать коррекцию
+
     PAYMENT_ADDRESSES: ClassVar[dict[str, str]] = {
         "usdt_ton": "UQBbezryJkNY7rF7Al55p3StMb2iIS006-xr4Jwmh4eq7Hzb",
         "usdt_bep20": "UQBbezryJkNY7rF7Al55p3StMb2iIS006-xr4Jwmh4eq7Hzb",
