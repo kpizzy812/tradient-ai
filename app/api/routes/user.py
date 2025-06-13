@@ -42,19 +42,26 @@ def get_lang_by_id(tg_id: int, db: Session = Depends(get_db)):
 
 @router.get("/profile", response_model=ProfileResponse)
 def profile(
-    current_user = Depends(get_current_user),
-    db: Session = Depends(get_db)
+        current_user=Depends(get_current_user),
+        db: Session = Depends(get_db)
 ):
     total_income = db.query(func.sum(IncomeLog.amount_usd)).filter(
         IncomeLog.user_id == current_user.id
     ).scalar() or 0.0
+
+    # Если ref_code отсутствует, генерируем его
+    if not current_user.ref_code:
+        from app.services.logic import generate_ref_code
+        current_user.ref_code = generate_ref_code(current_user.tg_id)
+        db.commit()
+
     return ProfileResponse(
         user_id=current_user.tg_id,
         username=current_user.username,
         lang=current_user.lang,
         profit_usd=current_user.profit_usd,
         hold_balance=current_user.hold_balance,
-        auto_reinvest_flags=current_user.auto_reinvest_flags,
+        auto_reinvest_flags=current_user.auto_reinvest_flags or {},  # На случай если None
         ref_code=current_user.ref_code,
         ref_link=f"https://t.me/{settings.BOT_USERNAME}?start={current_user.ref_code}",
         total_earned_usd=round(total_income, 2)

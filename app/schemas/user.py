@@ -8,6 +8,6 @@ class ProfileResponse(BaseModel):
     profit_usd: float
     hold_balance: float
     auto_reinvest_flags: Dict[str, bool]
-    ref_code: str
+    ref_code: Optional[str]  # Сделали опциональным
     ref_link: str
     total_earned_usd: float

@@ -107,7 +107,10 @@ static/trade_charts/
 
 # ===== Jupyter Notebooks =====
 .ipynb_checkpoints
+node_modules/
+frontend/node_modules/
 
+.next/
 
 # ===== mypy =====
 .mypy_cache/
