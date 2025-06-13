@@ -1,0 +1,26 @@
+{
+  "app/[locale]/page.tsx -> @twa-dev/sdk": {
+    "id": 7728,
+    "files": [
+      "static/chunks/728.8071621a563b37ed.js"
+    ]
+  },
+  "components/ClientWrapper.tsx -> @twa-dev/sdk": {
+    "id": 7728,
+    "files": [
+      "static/chunks/728.8071621a563b37ed.js"
+    ]
+  },
+  "shared/auth.ts -> @twa-dev/sdk": {
+    "id": 7728,
+    "files": [
+      "static/chunks/728.8071621a563b37ed.js"
+    ]
+  },
+  "shared/vibration.ts -> @twa-dev/sdk": {
+    "id": 7728,
+    "files": [
+      "static/chunks/728.8071621a563b37ed.js"
+    ]
+  }
+}
