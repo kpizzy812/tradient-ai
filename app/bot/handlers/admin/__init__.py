@@ -9,6 +9,7 @@ from .deposits import router as deposits_router
 from .withdrawals import router as withdrawals_router
 from .management import router as management_router
 from .broadcast import router as broadcast_router
+from .requests import router as requests_router  # Новый роутер для управления заявками
 
 # Создаем главный роутер для админки
 admin_router = Router()
@@ -22,5 +23,6 @@ admin_router.include_router(deposits_router)
 admin_router.include_router(withdrawals_router)
 admin_router.include_router(management_router)
 admin_router.include_router(broadcast_router)
+admin_router.include_router(requests_router)  # Добавляем новый роутер
 
 __all__ = ["admin_router"]

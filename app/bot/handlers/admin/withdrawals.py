@@ -49,9 +49,23 @@ def get_withdraw_filter_kb(current_filter="all"):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_withdraw_list_kb(page=0, total_pages=0, status_filter="all"):
-    """Клавиатура для списка заявок на вывод"""
+def get_withdraw_list_kb(page=0, total_pages=0, status_filter="all", requests_on_page=[]):
+    """Клавиатура для списка заявок на вывод с интерактивными кнопками"""
     buttons = []
+
+    # Кнопки для каждой заявки (только для pending заявок)
+    request_buttons = []
+    for req in requests_on_page:
+        if req.status == "pending":
+            request_buttons.append(InlineKeyboardButton(
+                text=f"#{req.id} 👁",
+                callback_data=f"view_withdraw_{req.id}"
+            ))
+
+    # Располагаем кнопки заявок по 3 в ряд
+    for i in range(0, len(request_buttons), 3):
+        row = request_buttons[i:i + 3]
+        buttons.append(row)
 
     # Пагинация
     if total_pages > 1:
@@ -199,8 +213,11 @@ async def show_withdraws_page(call: CallbackQuery, state: FSMContext, page: int,
             if req.mode:
                 mode_text = f" ({req.mode})"
 
+            # Показываем clickable индикатор для pending заявок
+            clickable_indicator = " 👁" if req.status == "pending" else ""
+
             text += (
-                f"<b>{page * ITEMS_PER_PAGE + i}.</b> {status_emoji} {username}\n"
+                f"<b>{page * ITEMS_PER_PAGE + i}.</b> {status_emoji} {username}{clickable_indicator}\n"
                 f"{source_text}{mode_text}\n"
                 f"💵 ${req.amount_usd:.2f} → ${req.final_amount_usd:.2f}\n"
                 f"💳 {req.method}"
@@ -209,14 +226,13 @@ async def show_withdraws_page(call: CallbackQuery, state: FSMContext, page: int,
             if req.currency:
                 text += f" ({req.currency})"
 
-            text += f"\n🕒 {req.created_at.strftime('%d.%m.%Y %H:%M')}\n"
+            text += f"\n🕒 {req.created_at.strftime('%d.%m %H:%M')}\n"
 
             if req.execute_until:
-                text += f"⏰ До: {req.execute_until.strftime('%d.%m.%Y %H:%M')}\n"
+                text += f"⏰ До: {req.execute_until.strftime('%d.%m %H:%M')}\n"
 
-            if req.details:
-                details = req.details[:50] + "..." if len(req.details) > 50 else req.details
-                text += f"📝 <code>{details}</code>\n"
+            if req.details and len(req.details) <= 30:
+                text += f"📝 <code>{req.details}</code>\n"
 
             text += "\n"
 
@@ -224,9 +240,13 @@ async def show_withdraws_page(call: CallbackQuery, state: FSMContext, page: int,
         if total_pages > 1:
             text += f"📄 Страница {page + 1} из {total_pages} | Всего: {total_count}"
 
+        # Подсказка для интерактивных заявок
+        if any(req.status == "pending" for req in requests):
+            text += "\n\n💡 Нажмите кнопку <b>#ID 👁</b> для управления заявкой"
+
         await call.message.edit_text(
             text,
-            reply_markup=get_withdraw_list_kb(page, total_pages, status_filter),
+            reply_markup=get_withdraw_list_kb(page, total_pages, status_filter, requests),
             parse_mode="HTML"
         )
         await state.set_state(AdminStates.withdraws_list)

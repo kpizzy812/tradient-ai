@@ -28,6 +28,7 @@ class AdminStates(StatesGroup):
     deposits_list = State()
     withdraws_filter = State()
     withdraws_list = State()
+    request_detail = State()  # Новое состояние для просмотра деталей заявки
 
     # Управление системой
     management_menu = State()
@@ -45,3 +46,4 @@ class AdminStates(StatesGroup):
     broadcast_date_input = State()
     broadcast_custom_input = State()
     broadcast_message_input = State()
+    broadcast_buttons_input = State()  # Новое состояние для создания кнопок
