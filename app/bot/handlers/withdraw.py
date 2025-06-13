@@ -29,14 +29,17 @@ async def callback_withdraw_approve(call: CallbackQuery, bot: Bot):
 
         db.commit()
 
-        user = db.query(User).get(req.user_id)
+        # Обновляем сообщение без кнопок
+        updated_text = call.message.text + f"\n\n✅ <b>ОДОБРЕНО</b> администратором @{call.from_user.username or call.from_user.id}"
+        await call.message.edit_text(updated_text, parse_mode="HTML")
+        await call.answer("✅ Заявка одобрена")
+
         if user:
             try:
                 await bot.send_message(user.tg_id, t("withdraw_approved", user.lang))
             except:
                 pass
 
-        await call.answer("✅ Заявка одобрена")
     finally:
         db.close()
 
@@ -68,14 +71,16 @@ async def callback_withdraw_decline(call: CallbackQuery, bot: Bot):
 
         db.commit()
 
+        # Обновляем сообщение без кнопок
+        updated_text = call.message.text + f"\n\n❌ <b>ОТКЛОНЕНО</b> администратором @{call.from_user.username or call.from_user.id}"
+        await call.message.edit_text(updated_text, parse_mode="HTML")
+        await call.answer("🚫 Заявка отклонена")
+
         if user:
             try:
                 await bot.send_message(user.tg_id, t("withdraw_declined", user.lang))
             except:
                 pass
 
-        await call.answer("🚫 Заявка отклонена")
     finally:
         db.close()
-
-

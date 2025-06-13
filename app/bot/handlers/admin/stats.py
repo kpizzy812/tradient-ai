@@ -332,3 +332,377 @@ async def show_pending_withdrawals(call: CallbackQuery, state: FSMContext):
         db.close()
 
     await call.message.edit_text(text, reply_markup=kb)
+
+
+@router.callback_query(StateFilter(AdminStates.stats_menu), F.data == "stats_finance")
+async def show_finance_stats(call: CallbackQuery, state: FSMContext):
+    """Финансовая статистика"""
+    db = SessionLocal()
+
+    try:
+        # Общие финансовые показатели
+        total_deposits = db.query(func.sum(User.deposit_usd)).scalar() or 0
+        total_profits = db.query(func.sum(User.profit_usd)).scalar() or 0
+        total_ref_balance = db.query(func.sum(User.ref_balance)).scalar() or 0
+
+        # Активные инвестиции
+        active_investments = db.query(func.sum(Investment.amount_usd)).filter(
+            Investment.is_active == True
+        ).scalar() or 0
+
+        # Заявки на вывод
+        pending_withdrawals = db.query(func.sum(WithdrawRequest.amount_usd)).filter(
+            WithdrawRequest.status == "pending"
+        ).scalar() or 0
+
+        completed_withdrawals = db.query(func.sum(WithdrawRequest.final_amount_usd)).filter(
+            WithdrawRequest.status.in_(["executed", "auto_paid"])
+        ).scalar() or 0
+
+        # Капитализация (общий баланс системы)
+        total_system_balance = total_deposits - completed_withdrawals
+
+        # Соотношения
+        deposit_to_withdrawal_ratio = (completed_withdrawals / max(total_deposits, 1)) * 100
+        profit_to_deposit_ratio = (total_profits / max(total_deposits, 1)) * 100
+
+        text = (
+            "💰 <b>Финансовая статистика</b>\n\n"
+
+            f"📈 <b>Поступления:</b>\n"
+            f"• Общий депозит: ${total_deposits:,.2f}\n"
+            f"• Активные инвестиции: ${active_investments:,.2f}\n\n"
+
+            f"📉 <b>Выплаты:</b>\n"
+            f"• Выплачено: ${completed_withdrawals:,.2f}\n"
+            f"• Ожидают: ${pending_withdrawals:,.2f}\n"
+            f"• Прибыль пользователей: ${total_profits:,.2f}\n"
+            f"• Реферальные: ${total_ref_balance:,.2f}\n\n"
+
+            f"📊 <b>Показатели:</b>\n"
+            f"• Капитализация: ${total_system_balance:,.2f}\n"
+            f"• Коэф. выплат: {deposit_to_withdrawal_ratio:.1f}%\n"
+            f"• Доходность: {profit_to_deposit_ratio:.1f}%\n"
+        )
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Обновить", callback_data="stats_finance")],
+                [InlineKeyboardButton(text="🔙 К статистике", callback_data="admin_stats")]
+            ]
+        )
+
+    finally:
+        db.close()
+
+    await call.message.edit_text(text, reply_markup=kb)
+    await state.set_state(AdminStates.stats_finance)
+
+
+@router.callback_query(StateFilter(AdminStates.stats_menu), F.data == "stats_users")
+async def show_users_stats(call: CallbackQuery, state: FSMContext):
+    """Статистика пользователей"""
+    db = SessionLocal()
+
+    try:
+        # Основные показатели
+        total_users = db.query(User).count()
+        active_users = db.query(User).filter(User.deposit_usd > 0).count()
+
+        # По периодам
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        week_ago = today - timedelta(days=7)
+        month_ago = today - timedelta(days=30)
+
+        new_today = db.query(User).filter(User.created_at >= today).count()
+        new_week = db.query(User).filter(User.created_at >= week_ago).count()
+        new_month = db.query(User).filter(User.created_at >= month_ago).count()
+
+        # По сумме депозита
+        users_100_plus = db.query(User).filter(User.deposit_usd >= 100).count()
+        users_500_plus = db.query(User).filter(User.deposit_usd >= 500).count()
+        users_1000_plus = db.query(User).filter(User.deposit_usd >= 1000).count()
+
+        # Средние показатели
+        avg_deposit = db.query(func.avg(User.deposit_usd)).filter(User.deposit_usd > 0).scalar() or 0
+        avg_profit = db.query(func.avg(User.profit_usd)).filter(User.profit_usd > 0).scalar() or 0
+
+        # Топ-10 пользователей по депозиту
+        top_depositors = db.query(User).filter(User.deposit_usd > 0).order_by(
+            User.deposit_usd.desc()
+        ).limit(5).all()
+
+        top_lines = []
+        for i, user in enumerate(top_depositors, 1):
+            username = f"@{user.username}" if user.username else f"ID{user.tg_id}"
+            top_lines.append(f"{i}. {username} - ${user.deposit_usd:,.2f}")
+
+        text = (
+                "👥 <b>Статистика пользователей</b>\n\n"
+
+                f"📊 <b>Общие показатели:</b>\n"
+                f"• Всего: {total_users:,}\n"
+                f"• Активных: {active_users:,} ({(active_users / max(total_users, 1) * 100):.1f}%)\n\n"
+
+                f"📅 <b>Регистрации:</b>\n"
+                f"• Сегодня: {new_today:,}\n"
+                f"• За неделю: {new_week:,}\n"
+                f"• За месяц: {new_month:,}\n\n"
+
+                f"💰 <b>По депозитам:</b>\n"
+                f"• От $100: {users_100_plus:,}\n"
+                f"• От $500: {users_500_plus:,}\n"
+                f"• От $1000: {users_1000_plus:,}\n\n"
+
+                f"📈 <b>Средние значения:</b>\n"
+                f"• Депозит: ${avg_deposit:.2f}\n"
+                f"• Прибыль: ${avg_profit:.2f}\n\n"
+
+                f"🏆 <b>Топ-5 по депозиту:</b>\n" + "\n".join(top_lines or ["Нет данных"])
+        )
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Обновить", callback_data="stats_users")],
+                [InlineKeyboardButton(text="🔙 К статистике", callback_data="admin_stats")]
+            ]
+        )
+
+    finally:
+        db.close()
+
+    await call.message.edit_text(text, reply_markup=kb)
+    await state.set_state(AdminStates.stats_users)
+
+
+@router.callback_query(StateFilter(AdminStates.stats_menu), F.data == "stats_pools")
+async def show_pools_stats(call: CallbackQuery, state: FSMContext):
+    """Статистика по пулам"""
+    db = SessionLocal()
+
+    try:
+        from app.core.config import settings
+
+        pool_stats = {}
+
+        for pool_name in settings.POOL_LIMITS.keys():
+            # Активные инвестиции в пуле
+            active_amount = db.query(func.sum(Investment.amount_usd)).filter(
+                and_(Investment.pool_name == pool_name, Investment.is_active == True)
+            ).scalar() or 0
+
+            # Количество инвесторов
+            investors_count = db.query(Investment.user_id).filter(
+                and_(Investment.pool_name == pool_name, Investment.is_active == True)
+            ).distinct().count()
+
+            # Всего инвестиций в пул (включая завершенные)
+            total_invested = db.query(func.sum(Investment.amount_usd)).filter(
+                Investment.pool_name == pool_name
+            ).scalar() or 0
+
+            # Заявки на пополнение этого пула
+            pending_deposits = db.query(func.sum(DepositRequest.amount_usd)).filter(
+                and_(
+                    DepositRequest.pool_name == pool_name,
+                    DepositRequest.status == "pending"
+                )
+            ).scalar() or 0
+
+            pool_stats[pool_name] = {
+                "active_amount": active_amount,
+                "investors": investors_count,
+                "total_invested": total_invested,
+                "pending": pending_deposits
+            }
+
+        text = "🏦 <b>Статистика по пулам</b>\n\n"
+
+        for pool_name, stats in pool_stats.items():
+            limits = settings.POOL_LIMITS.get(pool_name, {})
+            yield_range = settings.POOL_YIELD_RANGES.get(pool_name, (0, 0))
+            coeff = settings.POOL_COEFFICIENTS.get(pool_name, 1.0)
+
+            # Процент заполненности
+            max_capacity = limits.get("max", 1) * stats["investors"] if stats["investors"] > 0 else limits.get("max", 1)
+            fill_percent = (stats["active_amount"] / max_capacity * 100) if max_capacity > 0 else 0
+
+            text += (
+                f"<b>{pool_name}:</b>\n"
+                f"• Активно: ${stats['active_amount']:,.2f}\n"
+                f"• Инвесторов: {stats['investors']:,}\n"
+                f"• Всего вложено: ${stats['total_invested']:,.2f}\n"
+                f"• Ожидают: ${stats['pending']:,.2f}\n"
+                f"• Доходность: {yield_range[0]:.1f}%-{yield_range[1]:.1f}% (x{coeff})\n"
+                f"• Заполненность: {fill_percent:.1f}%\n\n"
+            )
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Обновить", callback_data="stats_pools")],
+                [InlineKeyboardButton(text="🔙 К статистике", callback_data="admin_stats")]
+            ]
+        )
+
+    finally:
+        db.close()
+
+    await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    await state.set_state(AdminStates.stats_pools)
+
+
+@router.callback_query(StateFilter(AdminStates.stats_menu), F.data == "stats_period")
+async def show_period_selection(call: CallbackQuery, state: FSMContext):
+    """Показать выбор периода для статистики"""
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📅 Сегодня", callback_data="period_today"),
+                InlineKeyboardButton(text="📅 Вчера", callback_data="period_yesterday")
+            ],
+            [
+                InlineKeyboardButton(text="📅 7 дней", callback_data="period_week"),
+                InlineKeyboardButton(text="📅 30 дней", callback_data="period_month")
+            ],
+            [
+                InlineKeyboardButton(text="📅 90 дней", callback_data="period_quarter"),
+                InlineKeyboardButton(text="📅 Год", callback_data="period_year")
+            ],
+            [
+                InlineKeyboardButton(text="🔙 К статистике", callback_data="admin_stats")
+            ]
+        ]
+    )
+
+    await call.message.edit_text(
+        "📅 <b>Статистика за период</b>\n\n"
+        "Выберите период для анализа:",
+        reply_markup=kb
+    )
+    await state.set_state(AdminStates.stats_period)
+
+
+@router.callback_query(StateFilter(AdminStates.stats_period), F.data.startswith("period_"))
+async def show_period_stats(call: CallbackQuery, state: FSMContext):
+    """Показать статистику за выбранный период"""
+    period = call.data.split("_")[1]
+
+    db = SessionLocal()
+
+    try:
+        # Определяем временные рамки
+        now = datetime.utcnow()
+
+        if period == "today":
+            start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            period_name = "сегодня"
+        elif period == "yesterday":
+            start_date = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            period_name = "вчера"
+        elif period == "week":
+            start_date = now - timedelta(days=7)
+            period_name = "за 7 дней"
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+            period_name = "за 30 дней"
+        elif period == "quarter":
+            start_date = now - timedelta(days=90)
+            period_name = "за 90 дней"
+        elif period == "year":
+            start_date = now - timedelta(days=365)
+            period_name = "за год"
+        else:
+            start_date = now - timedelta(days=7)
+            period_name = "за 7 дней"
+
+        # Для периодов кроме "вчера" конечная дата = сейчас
+        if period != "yesterday":
+            end_date = now
+
+        # Регистрации пользователей
+        new_users = db.query(User).filter(
+            User.created_at >= start_date,
+            User.created_at <= end_date
+        ).count()
+
+        # Пополнения
+        deposits_filter = and_(
+            DepositRequest.created_at >= start_date,
+            DepositRequest.created_at <= end_date,
+            DepositRequest.status == "approved"
+        )
+        deposits_count = db.query(DepositRequest).filter(deposits_filter).count()
+        deposits_amount = db.query(func.sum(DepositRequest.amount_usd)).filter(deposits_filter).scalar() or 0
+
+        # Выводы
+        withdraws_filter = and_(
+            WithdrawRequest.created_at >= start_date,
+            WithdrawRequest.created_at <= end_date,
+            WithdrawRequest.status.in_(["executed", "auto_paid"])
+        )
+        withdraws_count = db.query(WithdrawRequest).filter(withdraws_filter).count()
+        withdraws_amount = db.query(func.sum(WithdrawRequest.final_amount_usd)).filter(withdraws_filter).scalar() or 0
+
+        # Активность пользователей (кто делал депозиты)
+        active_users = db.query(DepositRequest.user_id).filter(deposits_filter).distinct().count()
+
+        # Соотношения
+        net_flow = deposits_amount - withdraws_amount
+        avg_deposit = deposits_amount / max(deposits_count, 1)
+        avg_withdraw = withdraws_amount / max(withdraws_count, 1)
+
+        text = (
+            f"📊 <b>Статистика {period_name}</b>\n\n"
+            f"📅 <b>Период:</b> {start_date.strftime('%d.%m.%Y')}"
+        )
+
+        if period == "yesterday":
+            text += f" - {end_date.strftime('%d.%m.%Y')}"
+        elif period == "today":
+            text += f" - сейчас"
+        else:
+            text += f" - {end_date.strftime('%d.%m.%Y')}"
+
+        text += (
+            f"\n\n👥 <b>Пользователи:</b>\n"
+            f"• Новых регистраций: {new_users:,}\n"
+            f"• Активных (с депозитами): {active_users:,}\n\n"
+
+            f"📈 <b>Пополнения:</b>\n"
+            f"• Количество: {deposits_count:,}\n"
+            f"• Сумма: ${deposits_amount:,.2f}\n"
+            f"• Средний чек: ${avg_deposit:.2f}\n\n"
+
+            f"📉 <b>Выводы:</b>\n"
+            f"• Количество: {withdraws_count:,}\n"
+            f"• Сумма: ${withdraws_amount:,.2f}\n"
+            f"• Средний чек: ${avg_withdraw:.2f}\n\n"
+
+            f"💰 <b>Итоги:</b>\n"
+            f"• Чистый приток: ${net_flow:,.2f}\n"
+            f"• Коэффициент оборота: {(withdraws_amount / max(deposits_amount, 1)):.2f}\n"
+        )
+
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🔄 Обновить", callback_data=f"period_{period}"),
+                    InlineKeyboardButton(text="📅 Другой период", callback_data="stats_period")
+                ],
+                [InlineKeyboardButton(text="🔙 К статистике", callback_data="admin_stats")]
+            ]
+        )
+
+    finally:
+        db.close()
+
+    await call.message.edit_text(text, reply_markup=kb)
+
+
+# Добавляем новое состояние для финансов
+@router.callback_query(F.data == "stats_finance")
+async def show_finance_stats_redirect(call: CallbackQuery, state: FSMContext):
+    """Редирект для финансовой статистики из любого состояния"""
+    await state.set_state(AdminStates.stats_menu)
+    await show_finance_stats(call, state)

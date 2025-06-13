@@ -31,7 +31,12 @@ async def callback_approve(call: CallbackQuery, bot: Bot):
         if success:
             req.status = "approved"
             db.commit()
-            await call.answer("✅ Принято")
+
+            # Обновляем сообщение без кнопок
+            updated_text = call.message.text + f"\n\n✅ <b>ОДОБРЕНО</b> администратором @{call.from_user.username or call.from_user.id}"
+            await call.message.edit_text(updated_text, parse_mode="HTML")
+            await call.answer("✅ Заявка одобрена")
+
             try:
                 await bot.send_message(user.tg_id, t("deposit_approved", user.lang))
             except:
@@ -61,12 +66,16 @@ async def callback_decline(call: CallbackQuery, bot: Bot):
             user.hold_balance = 0.0
             db.commit()
 
+        # Обновляем сообщение без кнопок
+        updated_text = call.message.text + f"\n\n❌ <b>ОТКЛОНЕНО</b> администратором @{call.from_user.username or call.from_user.id}"
+        await call.message.edit_text(updated_text, parse_mode="HTML")
+        await call.answer("🚫 Заявка отклонена")
+
         try:
             await bot.send_message(user.tg_id, t("deposit_declined", user.lang))
         except:
             pass
 
-        await call.answer("🚫 Отклонено")
     finally:
         db.close()
 
@@ -81,6 +90,10 @@ async def callback_delete(call: CallbackQuery):
             return await call.answer("❌ Не найдено", show_alert=True)
         req.status = "deleted"
         db.commit()
-        await call.answer("🗑 Удалено")
+
+        # Обновляем сообщение без кнопок
+        updated_text = call.message.text + f"\n\n🗑 <b>УДАЛЕНО</b> администратором @{call.from_user.username or call.from_user.id}"
+        await call.message.edit_text(updated_text, parse_mode="HTML")
+        await call.answer("🗑 Заявка удалена")
     finally:
         db.close()
