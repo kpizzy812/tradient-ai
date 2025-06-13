@@ -1,6 +1,6 @@
 'use client';
 import React from 'react';
-import clsx from 'clsx';
+import { motion } from 'framer-motion';
 import { vibrate } from '@/shared/vibration';
 
 type TabKey = 'pools' | 'profile' | 'info';
@@ -10,41 +10,69 @@ interface TabBarProps {
   onTabChange: (tab: TabKey) => void;
 }
 
-const tabs: { key: TabKey; label: string }[] = [
-  { key: 'pools', label: 'POOLS' },
-  { key: 'profile', label: 'TEAM' },
-  { key: 'info', label: 'INFO' },
+const tabs: { key: TabKey; label: string; icon: string }[] = [
+  { key: 'pools', label: 'POOLS', icon: '💎' },
+  { key: 'profile', label: 'TEAM', icon: '👥' },
+  { key: 'info', label: 'INFO', icon: '📊' },
 ];
 
 export const TabBar: React.FC<TabBarProps> = ({ activeTab, onTabChange }) => {
   return (
-    <div className="relative flex overflow-hidden bg-black rounded-2xl px-[1px] py-[1px]">
-      {tabs.map((tab, index) => {
-        const isActive = tab.key === activeTab;
+    <div className="glassmorphism-card rounded-2xl p-1 relative overflow-hidden">
+      {/* Фоновая анимация */}
+      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 via-cyan-500/10 to-blue-500/10 animate-shimmer"></div>
 
-        return (
-          <button
-            key={tab.key}
-            onClick={() => {
-              vibrate();
-              onTabChange(tab.key);
-            }}
-            className={clsx(
-              'flex-1 py-2 text-center font-medium text-sm transition-all duration-200',
-              isActive
-                ? 'bg-zinc-900 text-white z-10'
-                : 'bg-zinc-950 text-zinc-500 z-0 border-b border-zinc-800',
-              index === 0 && 'rounded-l-2xl',
-              index === tabs.length - 1 && 'rounded-r-2xl'
-            )}
-            style={{
-              boxShadow: isActive ? 'inset 0px -1px 0px #18181b' : undefined,
-            }}
-          >
-            {tab.label}
-          </button>
-        );
-      })}
+      <div className="relative flex">
+        {tabs.map((tab, index) => {
+          const isActive = tab.key === activeTab;
+
+          return (
+            <div key={tab.key} className="flex-1 relative">
+              {/* Активный индикатор */}
+              {isActive && (
+                <motion.div
+                  layoutId="activeTab"
+                  className="absolute inset-0 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-xl shadow-lg glow-blue"
+                  transition={{ type: "spring", bounce: 0.15, duration: 0.5 }}
+                />
+              )}
+
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => {
+                  vibrate();
+                  onTabChange(tab.key);
+                }}
+                className={`
+                  relative w-full py-3 px-4 text-center font-semibold text-sm
+                  transition-all duration-300 rounded-xl
+                  flex items-center justify-center gap-2
+                  ${isActive
+                    ? 'text-white z-10'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/30'
+                  }
+                `}
+              >
+                <span className="text-base">{tab.icon}</span>
+                <span className="tracking-wider">{tab.label}</span>
+
+                {/* Hover эффект для неактивных вкладок */}
+                {!isActive && (
+                  <motion.div
+                    className="absolute inset-0 bg-slate-700/20 rounded-xl opacity-0 hover:opacity-100 transition-opacity"
+                    whileHover={{ opacity: 1 }}
+                  />
+                )}
+              </motion.button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Декоративные элементы */}
+      <div className="absolute -top-1 -left-1 w-8 h-8 bg-gradient-to-br from-blue-500/20 to-transparent rounded-full blur-sm"></div>
+      <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-gradient-to-tl from-cyan-500/20 to-transparent rounded-full blur-sm"></div>
     </div>
   );
 };

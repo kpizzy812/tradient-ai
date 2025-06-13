@@ -3,19 +3,19 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useStore } from '@/shared/store';
-import { fetchProfile, fetchPools, updateAutoReinvest } from '@/shared/api';
+import { fetchProfile, fetchPools, updateAutoReinvest, UserProfile } from '@/shared/api';
 import { PoolInfo } from '@/types/pools';
 import { PoolCard } from '@/components/PoolCard';
 import { HeaderBar } from '@/components/HeaderBar';
+import { BalanceCard } from '@/components/BalanceCard';
 import { InvestModal } from '@/components/modals/InvestModal';
 import { WithdrawModal } from '@/components/modals/WithdrawModal';
 import WithdrawModalBal from '@/components/modals/WithdrawModalBal';
 import Skeleton from 'react-loading-skeleton';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { useRouter, useParams } from 'next/navigation';
 import { vibrate } from '@/shared/vibration';
-
 
 import { TabBar } from '@/components/TabBar';
 import TeamSection from '@/components/TeamSection';
@@ -29,7 +29,7 @@ export default function HubPage() {
 
   const [pools, setPools] = useState<PoolInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userBalanceUsd, setUserBalanceUsd] = useState<number | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [showInvestModal, setShowInvestModal] = useState(false);
@@ -38,7 +38,6 @@ export default function HubPage() {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawPool, setWithdrawPool] = useState<PoolInfo | null>(null);
 
-  // **Новый стейт для вкладок**
   const [activeTab, setActiveTab] = useState<'pools' | 'profile' | 'info'>('pools');
 
   useEffect(() => {
@@ -58,7 +57,7 @@ export default function HubPage() {
         }
 
         const profileRes = await fetchProfile();
-        setUserBalanceUsd(profileRes.profit_usd);
+        setProfile(profileRes);
 
         const poolsRes = await fetchPools(tgUserId);
         setPools(poolsRes);
@@ -70,26 +69,24 @@ export default function HubPage() {
     })();
   }, [token, refreshTrigger]);
 
- const handleLanguageSwitch = () => {
-  vibrate();
-  const current = (params.locale as string) || 'ru';
-  const next = current === 'ru' ? 'en' : 'ru';
-  router.replace(`/${next}`);
-};
+  const handleLanguageSwitch = () => {
+    vibrate();
+    const current = (params.locale as string) || 'ru';
+    const next = current === 'ru' ? 'en' : 'ru';
+    router.replace(`/${next}`);
+  };
 
   const handleWithdraw = () => {
-  vibrate();
-  // открываем модалку вывода с баланса
-  setWithdrawPool(null);
-  setShowWithdrawModal(true);
-};
+    vibrate();
+    setWithdrawPool(null);
+    setShowWithdrawModal(true);
+  };
 
   const handleWithdrawFromPool = (pool: PoolInfo) => {
-  vibrate();
-  // открываем модалку вывода из выбранного пула
-  setWithdrawPool(pool);
-  setShowWithdrawModal(true);
-};
+    vibrate();
+    setWithdrawPool(pool);
+    setShowWithdrawModal(true);
+  };
 
   const handleWithdrawContinue = (finalAmount: number, executeUntil: string) => {
     setShowWithdrawModal(false);
@@ -137,81 +134,143 @@ export default function HubPage() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-900 text-white">
-      <HeaderBar
-        balanceUsd={userBalanceUsd ?? 0}
-        onWithdraw={handleWithdraw}
-        onLanguageSwitch={handleLanguageSwitch}
-      />
+    <div className="min-h-screen" style={{ background: 'linear-gradient(135deg, #0F172A 0%, #1E293B 100%)' }}>
+      <HeaderBar onLanguageSwitch={handleLanguageSwitch} />
 
-      <div className="p-4">
-        {/* новая панель вкладок */}
-        <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
-
-        <div className="mt-4 space-y-4">
-          {/* ПУЛЫ */}
+      <div className="px-4 pb-8">
+        {/* Карточка баланса - показываем только на вкладке pools */}
+        <AnimatePresence>
           {activeTab === 'pools' && (
-            loading ? (
-              <>
-                <Skeleton height={120} borderRadius={16} />
-                <Skeleton height={120} borderRadius={16} />
-              </>
-            ) : (
-              pools.map((pool) => (
-                <motion.div
-                  key={pool.name}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                >
-                  <PoolCard
-                    pool={pool}
-                    onInvest={handleInvestClick}
-                    onWithdraw={handleWithdrawFromPool}
-                    onToggleReinvest={handleToggleReinvest}
-                  />
-                </motion.div>
-              ))
-            )
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <BalanceCard
+                profile={profile}
+                onWithdraw={handleWithdraw}
+                loading={loading}
+              />
+            </motion.div>
           )}
+        </AnimatePresence>
 
-          {/* КОМАНДА */}
-          {activeTab === 'profile' && <TeamSection />}
+        {/* Панель вкладок */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
+        </motion.div>
 
-          {/* ИНФО */}
-          {activeTab === 'info' && (
-              <InfoSection />
+        {/* Контент вкладок */}
+        <div className="mt-6">
+          <AnimatePresence mode="wait">
+            {/* ПУЛЫ */}
+            {activeTab === 'pools' && (
+              <motion.div
+                key="pools"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4"
+              >
+                {loading ? (
+                  <>
+                    <Skeleton height={140} borderRadius={16} baseColor="#1E293B" highlightColor="#334155" />
+                    <Skeleton height={140} borderRadius={16} baseColor="#1E293B" highlightColor="#334155" />
+                  </>
+                ) : (
+                  pools.map((pool, index) => (
+                    <motion.div
+                      key={pool.name}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: index * 0.1 }}
+                    >
+                      <PoolCard
+                        pool={pool}
+                        onInvest={handleInvestClick}
+                        onWithdraw={handleWithdrawFromPool}
+                        onToggleReinvest={handleToggleReinvest}
+                      />
+                    </motion.div>
+                  ))
+                )}
+              </motion.div>
             )}
 
+            {/* КОМАНДА */}
+            {activeTab === 'profile' && (
+              <motion.div
+                key="profile"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <TeamSection />
+              </motion.div>
+            )}
+
+            {/* ИНФО */}
+            {activeTab === 'info' && (
+              <motion.div
+                key="info"
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.3 }}
+              >
+                <InfoSection />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {showWithdrawModal && (
-          withdrawPool ? (
-            // вывод из пула
-            <WithdrawModal
-              pool={withdrawPool}
-              onClose={() => setShowWithdrawModal(false)}
-              onContinue={handleWithdrawContinue}
-            />
-          ) : (
-            // вывод с общего баланса
-            <WithdrawModalBal
-              balanceUsd={userBalanceUsd!}
-              onClose={() => setShowWithdrawModal(false)}
-              onContinue={handleWithdrawContinue}
-            />
-          )
+      {/* Модальные окна */}
+      <AnimatePresence>
+        {showWithdrawModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            {withdrawPool ? (
+              <WithdrawModal
+                pool={withdrawPool}
+                onClose={() => setShowWithdrawModal(false)}
+                onContinue={handleWithdrawContinue}
+              />
+            ) : (
+              <WithdrawModalBal
+                balanceUsd={profile?.profit_usd || 0}
+                onClose={() => setShowWithdrawModal(false)}
+                onContinue={handleWithdrawContinue}
+              />
+            )}
+          </motion.div>
         )}
 
-      {showInvestModal && selectedPool && (
-        <InvestModal
-          pool={selectedPool}
-          balanceUsd={userBalanceUsd ?? 0}
-          onClose={() => setShowInvestModal(false)}
-          onContinue={handleInvestContinue}
-        />
-      )}
+        {showInvestModal && selectedPool && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <InvestModal
+              pool={selectedPool}
+              balanceUsd={profile?.profit_usd || 0}
+              onClose={() => setShowInvestModal(false)}
+              onContinue={handleInvestContinue}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

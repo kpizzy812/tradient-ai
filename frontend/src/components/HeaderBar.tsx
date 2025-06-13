@@ -3,67 +3,79 @@
 import React from 'react';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
+import { motion } from 'framer-motion';
 
 type HeaderBarProps = {
-  balanceUsd?: number;
-  onWithdraw?: () => void;
   onLanguageSwitch?: () => void;
 };
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
-  balanceUsd = 0,
-  onWithdraw,
   onLanguageSwitch,
 }) => {
   const t = useTranslations();
 
   return (
-    <div className="relative flex items-center justify-between px-4 py-3 bg-zinc-900 border-b border-zinc-800">
+    <motion.div
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glassmorphism flex items-center justify-between px-6 py-4 backdrop-blur-xl"
+    >
       {/* Логотип */}
-      <button
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.98 }}
         onClick={onLanguageSwitch}
-        className="hover:opacity-80 transition"
+        className="flex items-center gap-3 hover:opacity-80 transition-all duration-300"
         aria-label={t('common.switchLanguage')}
       >
-        <Image
-          src="/images/logo.png"
-          alt="logo"
-          width={36}
-          height={36}
-          className="rounded-md"
-        />
-      </button>
+        <div className="relative">
+          <Image
+            src="/images/logo.png"
+            alt="logo"
+            width={40}
+            height={40}
+            className="rounded-xl shadow-lg"
+          />
+          <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-blue-500/20 to-cyan-500/20 animate-pulse-glow"></div>
+        </div>
+        <div className="hidden sm:block">
+          <h1 className="text-white font-bold text-lg text-gradient-blue">
+            Tradient AI
+          </h1>
+          <p className="text-slate-400 text-xs">
+            AI Trading Platform
+          </p>
+        </div>
+      </motion.button>
 
-      {/* Баланс */}
-      <div className="absolute left-1/2 -translate-x-1/2 text-white text-sm font-medium">
-        {t('common.balance')}: {' '}
-        <span className="text-green-400 font-semibold">
-          ${balanceUsd.toFixed(2)}
-        </span>
+      {/* Дополнительные элементы */}
+      <div className="flex items-center gap-3">
+        {/* Индикатор статуса */}
+        <motion.div
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ delay: 0.2 }}
+          className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 rounded-lg border border-green-500/30"
+        >
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <span className="text-green-400 text-xs font-medium">
+            Online
+          </span>
+        </motion.div>
+
+        {/* Меню/настройки */}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          className="p-2 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 transition-all duration-300 border border-slate-600/30"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-slate-300">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v6m0 6v6"/>
+            <path d="M1 12h6m6 0h6"/>
+          </svg>
+        </motion.button>
       </div>
-
-      {/* Кнопка "Вывести" с улучшенной анимацией блика */}
-      <button
-        className="relative overflow-hidden bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-1.5 rounded-xl transition"
-        onClick={onWithdraw}
-      >
-        <span className="relative z-10">{t('common.withdraw')}</span>
-        {/* основной слой блика */}
-        <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-xl" />
-        {/* движущийся узкий бликовый штрих */}
-        <span className="absolute top-0 left-0 h-full w-8 bg-white/40 blur-sm animate-glint" />
-      </button>
-
-      <style jsx>{`
-        @keyframes glint {
-          0% { transform: translateX(-100%) skewX(-20deg); opacity: 0; }
-          50% { opacity: 1; }
-          100% { transform: translateX(200%) skewX(-20deg); opacity: 0; }
-        }
-        .animate-glint {
-          animation: glint 3s ease-in-out infinite;
-        }
-      `}</style>
-    </div>
+    </motion.div>
   );
 };
